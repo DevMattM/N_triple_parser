@@ -1,0 +1,59 @@
+# keepATODO.com
+# Keep A TODO LIST: (There is always lots of stuff TODO, so just do it ;)
+Examples:
+
+* Completed task logged on 5/16 and completed on 5/17
+** DONE [#A] review Patrick's pull request 
+CLOSED: [2017-05-17 Wed 09:45]
+(senrabc@gmail.com) <2017-05-16 Tue> +TodoTxtTouch @github
+- [X] Review the pull request 
+* High priority new task
+** TODO [#A] This is the text of my TODO item.
+(senrabc@gmail.com) <2017-05-16 Tue> +HCVProject @gitrepo(location, etc..)
+- [ ] This is small task of the todo
+- [ ] This is another small task of the todo
+
+* Medium priority new task
+** TODO [#B] This is the text of my TODO item. 
+(senrabc@gmail.com) <2017-05-16 Tue> +context @phonecal
+- [X] this is a small completed task of the todo
+- [ ] this is another small task of the todo 
+ 
+(senrabc@gmail.com) <2017-05-16 Tue> +context @webserver
+
+** TODO [#C] 
+(senrabc@gmail.com) <2017
+** TODO [#C]
+(senrabc@gmail.com) <2017
+** TODO [#C]  
+(senrabc@gmail.com) <2017
+* -----------------------------------------------------------
+
+* TODO [#B] Create yaml templates of AUTHORS and LICENSE
+(devmattm@gmail.com)<2017-05-23 Tue> 
+- [ ] AUTHORS (variables for owner name and email)
+- [ ] LICENSE (apache 2.0) (variables for year and owner name)
+
+* TODO [#B] Create template files for TODO.org and CHANGELOG.md 
+(devmattm@gmail.com)<2017-05-23 Tue>
+- [ ] Create a todo.org with the text from above the dotted line in this file
+- [ ] Create a CHANGELOG.md file with some base stuff
+
+* TODO [#B] Automate creating AUTHORS, LICENSE, TODO.org, and CHANGELOG.md 
+(devmattm#gmail.com) <2017-05-23 Tue>
+- [ ] create script to get project name, author name, and email
+- [ ] generate files from yaml templates and new input
+- [ ] copy template files and new templated files to a new dir with project name
+
+* TODO Break this down a bit more, no particular order, this is a mind dump
+(devmattm@gmail.com)<2017-05-23 Tue> 
+- [ ] Create a new dir with the project name
+- [ ] Inside that dir, create a tests director
+- [ ] create __init__.py for both dirs
+- [ ] create base failing tests
+- [ ] create a __main__
+- [ ] Create a vagrant
+- [ ] set up docopt
+- [ ] Make it pipable
+- [ ] create version.py file
+- [ ] config file with owner name and email
