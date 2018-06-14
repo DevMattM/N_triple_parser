@@ -2,6 +2,8 @@ import sys
 import re
 import logging
 
+from datetime import datetime
+
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
@@ -36,10 +38,25 @@ class Iri(TripleSectionType):
     regex_match = '(^<.*?>)'
 
     def clean_data(self):
-        bad_chars = r'[\x00-\x20<>"{}|^`\\]'
+        #First select inside regex match, then clean
+        # bad_chars = r'[\x00-\x20<>"{}|^`\\]'
+        bad_chars =  ('<','>','"','{','}','|','^','`','\\','\x01','\x02','\x03','\x04','\x05','\x06','\x07','\x08','\x09','\x0a','\x0b','\x0c','\x0d','\x0e','\x0f','\x10','\x11','\x12','\x13','\x14','\x15','\x16','\x17','\x18','\x19','\x1a','\x1b','\x1c','\x1d','\x1e','\x1f','\x20')
         old_line = self.data
-        self.data = re.sub(bad_chars,'',self.data)
-        logger.info("IRI %s cleaned. Now: %s" % (old_line, self.data))
+        unenclosed_line = self.data[1:-1]
+        for ch in bad_chars:
+            if ch in unenclosed_line:
+                unenclosed_line = unenclosed_line.replace(ch,'')
+
+        unenclosed_line = self.remove_extra_http(unenclosed_line)
+        # clean_line = self.fix_dates(clean_line)
+        self.data = "<" + unenclosed_line + ">"
+        logger.debug("IRI %s cleaned. Now: %s" % (old_line, self.data))
+
+    def remove_extra_http(self, line):
+        #This function fixes issues where http://http:// exists
+        clean_line = line.replace("http://http://", "http://")
+        logger.debug("%s replaced with %s" % (line, clean_line))
+        return clean_line
 
 def get_type(line, available_types):
     #This function takes a line and available types and tries to build an
@@ -59,7 +76,7 @@ def get_type(line, available_types):
     return line, rdf_obj
 
 class BlankNode(TripleSectionType):
-    regex_match = '^_:[^ ]*' #TODO Need to break on whitespace
+    regex_match = '^_:\w*' #TODO Need to break on whitespace
 
     def clean_data(self):
         pass
@@ -68,7 +85,40 @@ class Literal(TripleSectionType):
     #can be ", ', """, '''
     regex_match = """(^('{3}|'|"{3}|").*('{3}|'|"{3}|"))((\^\^)?(<.*?>))?(@[A-Za-z0-9-]*)?|[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?|(true|false)"""
     def clean_data(self):
-        pass
+        old_line = self.data
+        clean_line = self.fix_dates(old_line)
+        clean_line = self.fix_missing_types(clean_line)
+        self.data = clean_line
+        logger.debug("Literal %s cleaned. Now: %s" % (old_line, self.data))
+
+    def fix_dates(self, line):
+        #I only want the thing in between quotes
+        #Want something like 'January 5, 2013'
+        #Assuming well formed IRI, so want to get value from inbetween quotes
+        try:
+            literal_data = line.split("^^")
+            new_date = datetime.strptime(literal_data[0], '"%B %d, %Y"')
+        except ValueError as err:
+            #Probably no date found
+            return line
+
+        new_date_string = new_date.strftime("%Y-%m-%dT%H:%M:%S")
+        literal_data[0] = '"%s"' % new_date_string
+        return "^^".join(literal_data)
+
+    def fix_missing_types(self, line):
+        #This function fixes the problem where a literal is simple, and not containing the proper datatype
+        #like "McConnell, Matt"  instead of "McConnell, Matt"^^<http://www.w3.org/2001/XMLSchema#string>
+        #We can tell this if line ends in just a quote
+
+        bad_ending_chars = ("'", '"') #Single or double
+        string_iri = "^^<http://www.w3.org/2001/XMLSchema#string>"
+        new_line = line
+        if line.endswith(bad_ending_chars):
+            new_line += string_iri
+
+        return new_line
+
 
 class TripleSection():
     allowed_types = [Iri]
@@ -142,7 +192,11 @@ class Triple():
             string += '\t'
             string += str(relationship[0]) + '\t'
             string += str(relationship[1]) + '\t'
-        string += ".\n"
+        if len(self.relationships) > 1: string += "."
+        return string
+
+    def to_string_flat(self):
+        string = str(self.subject) + '\t' + str(self.relationships[0][0]) + '\t' + str(self.relationships[0][1])
         return string
 
     def load(self,line):
@@ -207,15 +261,21 @@ class Triple():
         """
         trip_ender = '.'
         pair_ender = ';'
+        graph_ender = '}'
         end_char = line.strip()
         if end_char == pair_ender:
             new_pair = (Predicate(), RDFObject())
             self.relationships.append(new_pair)
             self.transition(jump_to=self.states[self.__predicate])
-        elif end_char == trip_ender:
+        elif end_char in trip_ender:
             self.is_complete = True
             self.transition(jump_to=self.states[self.__completed])
             logger.debug("------------------------TRIPLE COMPLETED---------------------")
+        elif end_char == graph_ender:
+            self.is_complete = True
+            self.transition(jump_to=self.states[self.__completed])
+            logger.debug("------------------------TRIPLE COMPLETED---------------------")
+            return "}"
         else:
             raise ValueError("This line should just be a single character. Something was parsed incorrectly. Value: %s" % end_char)
         return
@@ -254,7 +314,7 @@ class Graph():
         self.state = self.states[0]
         self.processing = None
         self.outfile = outfile
-
+        self.graph_out_string =[]
     def load(self,line):
         #load line into the graph and determine what to do
         #Need to check if graph or triples
@@ -296,12 +356,25 @@ class Graph():
             logging.warning("Triple loading failed: %s" % err)
             logging.warning("line: %s" % line)
 
+        if triple.is_complete:
+            logger.debug("----APPENDED TRIPLE-----")
+            # self.print_to_file(triple.to_string(tab=True))
+            # self.graph_out_string.append(triple.to_string(tab=True) + '\n')
+            self.graph_out_string.append(triple.to_string_flat())
+            self.triples += 1
+            logger.debug("Total triples: %d" % self.triples)
+            self.processing = None
+        else:
+            self.processing = triple
         #Line may be blank or may be a }
         try:
             to_return = line.split(self.end_char, 1)[1]
             self.is_complete = True
-            logger.info('GRAPH COMPLETE')
-            self.print_to_file(self.end_char)
+            logger.debug('GRAPH COMPLETE')
+            # self.print_to_file(self.end_char)
+            self.graph_out_string.append("\t" + self.end_char + '\n')
+            self.print_to_file()
+            self.graph_out_string = None
         except (AttributeError, IndexError) as err:
             to_return = line
         #triple should return a string thats like "} sxxsfdsfaffs" and it shouldn't have more than a single }
@@ -310,14 +383,6 @@ class Graph():
         #consider the case wehre a non triple string gets sent, we don't want to append an empty triples
         #since a split returned some stuff, we can validate that the graph is complete
 
-        if triple.is_complete:
-            logger.debug("----APPENDED TRIPLE-----")
-            self.print_to_file(triple.to_string(tab=True))
-            self.triples += 1
-            logger.info("Total triples: %d" % self.triples)
-            self.processing = None
-        else:
-            self.processing = triple
         return to_return
 
     def set_name(self):
@@ -327,12 +392,16 @@ class Graph():
         """
         name_str = self.processing.strip()
         self.name = name_str or self.default_name
-        self.print_to_file(self.name + '\t ' + self.start_char)
-        logger.info("Graph NAME: %s" % self.name)
+        # self.print_to_file(self.name + '\t ' + self.start_char)
+        # self.graph_out_string.append(self.name + '\t ' + self.start_char + '\n')
+        self.graph_out_string.append(self.name + '\t ' + self.start_char + '\t')
+        logger.debug("Graph NAME: %s" % self.name)
 
-    def print_to_file(self, line):
-        self.outfile.write(line + "\n")
+    # def print_to_file(self, line):
+    def print_to_file(self):
+        # self.outfile.write(line + "\n")
 
+        self.outfile.writelines(self.graph_out_string)
     def get_name(self, line):
         """
         The graph has not started yet, we are still trying to get the name
@@ -382,6 +451,7 @@ def main(file_path, output_path='cleaned.trig'):
     with open(file_path, 'r') as trig, open(output_path, 'w') as outfile:
         graph = Graph(outfile=outfile)
         for line in trig:
+            if bad_line(line): continue
             while line:
                 logger.debug("Loading Line: %s" % line)
                 if line[0] in ignore_chars:
@@ -389,7 +459,7 @@ def main(file_path, output_path='cleaned.trig'):
                     outfile.write(line)
                 line = graph.load(line)
                 if graph.is_complete:
-                    graphs.append(graph)
+                    # graphs.append(graph)
                     graph = Graph(outfile=outfile)
     print("------------------------------")
     print("Total graphs found: %s" % len(graphs))
@@ -397,6 +467,22 @@ def main(file_path, output_path='cleaned.trig'):
     for graph in graphs:
         print("%s : %d" % (graph.name, graph.triples))
     print("------------------------------")
+
+def bad_line(line):
+#Remove UFID lines
+
+    bad_lines = [
+        'http://vivo.ufl.edu/harvested/thumbDirDownload/ufid',
+        'http://vivo.ufl.edu/ontology/vivo-ufl/ufid',
+        'http://vivo.ufl.edu/harvested/peopleImage',
+        'http://vivo.ufl.edu/harvested/thumbImg',
+        'http://vivo.ufl.edu/harvested/mainImg',
+        'http://vivo.ufl.edu/harvested/fullDirDownload'
+    ]
+    for bad_line in bad_lines:
+        if bad_line in line:
+            return True
+    return False
 
 if __name__ == "__main__":
     #need file name arg
